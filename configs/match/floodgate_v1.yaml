@@ -4,11 +4,11 @@
 #   python scripts/floodgate_client.py --config configs/match/floodgate_v1.yaml
 #
 # 事前準備:
-#   1. .env に FLOODGATE_PASSWORD を設定(リポジトリ root の .env.example 参照)
-#   2. floodgate にハンドル `Rin-suisho5-v1` で登録済みであること
-#      アカウント登録: http://wdoor.c.u-tokyo.ac.jp/shogi/
-#   3. ../engine/bin/YaneuraOu-NORMAL.exe がビルド済みであること(docs/BUILD.md)
-#   4. ../evals/baseline/suisho5/ に水匠5の nn.bin が配置済みであること
+#   1. .env に FLOODGATE_PASSWORD を設定(リポジトリ root の .env.example 参照)。
+#      floodgate は Web フォーム登録不要 — 任意のパスワードで初回接続すれば
+#      ハンドル `Rin-suisho5-v1` が以降そのパスワード付きで予約される。
+#   2. ../engine/bin/YaneuraOu-NORMAL.exe がビルド済みであること(docs/BUILD.md)
+#   3. ../evals/baseline/suisho5/ に水匠5の nn.bin が配置済みであること
 #      (evals/baseline/suisho5/fetch.ps1 で取得)
 
 name: Rin-suisho5-v1

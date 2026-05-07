@@ -8,13 +8,16 @@ floodgate は東京大学が運用する将棋エンジンの自動対局場(CSA
 
 ## 1. 事前準備
 
-### 1.1 アカウント登録(人間が手動)
+### 1.1 ハンドル名とパスワードを決める
 
-floodgate 公式ページの案内に従い、ハンドル名 `Rin-suisho5-v1` で登録する。
-パスワードは控えておく(後で `.env` に設定)。
+floodgate(shogi-server)は **Web フォームによる事前登録は不要**。
+プロトコル仕様で「初回接続したハンドル名 + パスワード」がそのまま予約され、
+以降は同じパスワードでないと同名でログインできない(first-come 自己登録方式)。
 
-> 本プロジェクトの命名規則: `Rin-<eval-version>-v<engine-version>`
-> 評価関数を差し替えたら別ハンドルとして登録(例: `Rin-myeval01-v1`)。
+- 本プロジェクトのハンドル: **`Rin-suisho5-v1`**
+- 命名規則: `Rin-<eval-version>-v<engine-version>`(評価関数を差し替えたら別ハンドル、例: `Rin-myeval01-v1`)
+- パスワード: 任意の文字列を自分で決める。第三者に推測されにくいものを推奨(他者が同名で先に接続するのを防ぐ)
+- 決めた値は次節 1.3 で `.env` に書く
 
 ### 1.2 エンジン・評価関数の準備
 
@@ -29,7 +32,7 @@ ticket-001 の手順に従い、以下を整える:
 
 ```powershell
 copy .env.example .env
-notepad .env  # FLOODGATE_PASSWORD に登録時のパスワードを設定
+notepad .env  # FLOODGATE_PASSWORD に 1.1 で決めたパスワードを設定
 ```
 
 `.env` は `.gitignore` 済み。コミット禁止。
