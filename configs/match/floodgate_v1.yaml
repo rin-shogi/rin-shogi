@@ -7,9 +7,13 @@
 #   1. .env に FLOODGATE_PASSWORD を設定(リポジトリ root の .env.example 参照)。
 #      floodgate は Web フォーム登録不要 — 任意のパスワードで初回接続すれば
 #      ハンドル `Rin-suisho5-v1` が以降そのパスワード付きで予約される。
-#   2. ../engine/bin/YaneuraOu-NORMAL.exe がビルド済みであること(docs/BUILD.md)
-#   3. ../evals/baseline/suisho5/ に水匠5の nn.bin が配置済みであること
+#   2. engine/bin/YaneuraOu-NORMAL.exe がビルド済みであること(docs/BUILD.md)
+#   3. evals/baseline/suisho5/ に水匠5の nn.bin が配置済みであること
 #      (evals/baseline/suisho5/fetch.ps1 で取得)
+#
+# パス解決メモ: 本 YAML 内の相対パスは「この YAML のあるディレクトリ
+# (configs/match/) からの相対」として解決される(scripts/utils/config.py の
+# resolve_path 参照)。リポジトリ root に到達するには ../../ が必要。
 
 name: Rin-suisho5-v1
 mode: floodgate
@@ -23,16 +27,17 @@ account:
   password: $env:FLOODGATE_PASSWORD
 
 engine:
-  binary: ../engine/bin/YaneuraOu-NORMAL.exe
+  # 相対パスは「この YAML のあるディレクトリ(configs/match/)からの相対」
+  binary: ../../engine/bin/YaneuraOu-NORMAL.exe
   # cwd を engine/bin にする必要があれば指定(EvalDir を相対指定する場合)
-  # cwd: ../engine/bin
+  # cwd: ../../engine/bin
   options:
     # スレッド数(本端末: AMD Ryzen 7 7735HS、論理 16)
     Threads: 8
     # 置換表(MB)。1 局 5〜15 分のため大きめが有利
     USI_Hash: 4096
     # 評価関数ディレクトリ
-    EvalDir: ../evals/baseline/suisho5
+    EvalDir: ../../evals/baseline/suisho5
     # FV_SCALE は水匠5の推奨値
     FV_SCALE: 24
     # ネットワーク遅延の補正(floodgate 用、ms)
@@ -41,9 +46,9 @@ engine:
     # 思考スレッドあたりの探索打ち切り(任意。標準値で OK)
     # MinimumThinkingTime: 1000
 
-# 棋譜・ログ保存先
-log_dir: ../results/floodgate/Rin-suisho5-v1
-kifu_dir: ../kifu
+# 棋譜・ログ保存先(リポジトリ root の kifu/, results/floodgate/ を指す)
+log_dir: ../../results/floodgate/Rin-suisho5-v1
+kifu_dir: ../../kifu
 
 # 自動再接続(切断時)
 auto_reconnect: true

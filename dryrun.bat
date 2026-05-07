@@ -1,9 +1,10 @@
 @echo off
-REM Rin floodgate dry-run(モック CSA サーバ + Fake USI Engine で 1 局完走確認)
-REM 本番接続せず、コードの自己整合性をチェックする用途。
-REM 期待出力末尾: "ALL TESTS PASSED"
+REM Rin floodgate dry-run (mock CSA server + Fake USI Engine, 1-game completion)
+REM No real network. Use this to sanity-check the code before a real run.
+REM Expected tail: "ALL DRY-RUN TESTS PASSED"
 
 setlocal
+chcp 65001 >nul
 set PYTHONIOENCODING=utf-8
 cd /d "%~dp0"
 
