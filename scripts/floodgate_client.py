@@ -1,59 +1,427 @@
-"""floodgate(shogi-server)接続クライアント(plan E2)— 骨組み。
+"""floodgate(shogi-server)接続クライアント — 本実装。
 
-CSA プロトコルでサーバに接続し、自エンジン(USIエンジン)を介して対局する。
+CSA プロトコルでサーバに接続し、USIエンジン(やねうら王)を介して対局する。
 
-実装段階:
-    - v0(本ファイル): API 設計・骨組みのみ。CSA <-> USI 翻訳と sock 通信は TODO
-    - v1: ログイン → 待ち受け → 1局完走 → ログ保存
-    - v2: 自動再接続・複数セッション・レーティング監視
+使い方:
+    1. リポジトリ root の `.env` に FLOODGATE_PASSWORD を設定
+    2. `configs/match/floodgate_v1.yaml` を編集(handle 名・エンジンパス等)
+    3. 実行:
+       python scripts/floodgate_client.py --config configs/match/floodgate_v1.yaml
 
-参考実装:
-    - 公式 shogi-server リポジトリの Ruby クライアント
-    - 既存の Python 実装: 例 yaneuraou-floodgate-client (要調査)
-
-使い方(将来):
-    $env:FLOODGATE_PASSWORD = "your-password"
-    python scripts/floodgate_client.py --config configs/match/floodgate_v1.yaml
+機能:
+    - .env から FLOODGATE_PASSWORD 等を自動ロード(python-dotenv)
+    - USI エンジンを subprocess 起動、対局ごとに usinewgame で初期化
+    - CSA プロトコルでログイン → Game_Summary 受領 → AGREE → 対局ループ
+    - 対局棋譜を kifu/yyyy/mm/dd/<game_id>.csa に保存
+    - 対局結果サマリを <log_dir>/log.jsonl に追記
+    - 自動再接続(切断時 30s 待機、連続 5 回失敗で停止)
+    - 1 セッション最大対局数 / Ctrl-C グレースフル停止
+    - 認証情報の漏洩防止: 棋譜書込前に password が含まれていないことを assert
 """
 from __future__ import annotations
 
 import argparse
+import json
+import logging
+import signal
+import socket
 import sys
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
+
+import cshogi
+from dotenv import load_dotenv
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
+
 from utils.config import load_config, resolve_path  # noqa: E402
+from utils.csa import (  # noqa: E402
+    CsaClient,
+    CsaProtocolError,
+    EndGame,
+    GameSummary,
+    mask_password,
+)
+from utils.csa_usi import (  # noqa: E402
+    csa_move_to_usi,
+    push_csa_move,
+    usi_move_to_csa,
+)
+from utils.usi import UsiEngine  # noqa: E402
+
+
+log = logging.getLogger("floodgate_client")
+
+
+# --- グレースフル停止フラグ(Ctrl-C で立てる) ---
+_stop_requested = False
+
+
+def _install_sigint_handler() -> None:
+    def handler(signum, frame):
+        global _stop_requested
+        _stop_requested = True
+        log.warning("SIGINT 受信。進行中の対局を完走後に停止します。")
+
+    signal.signal(signal.SIGINT, handler)
+
+
+@dataclass
+class GameResult:
+    game_id: str
+    opponent: str
+    my_color: str  # "+" or "-"
+    result_marker: str  # "#WIN", "#LOSE", ...
+    moves: int
+    duration_s: int
+    started_at: str  # ISO8601 UTC
+    kifu_path: str
+
+
+def _kifu_dir_for(base_dir: Path, started_at_dt: datetime) -> Path:
+    """`kifu/yyyy/mm/dd/` ディレクトリを返す(なければ作る)。"""
+    d = base_dir / f"{started_at_dt:%Y}" / f"{started_at_dt:%m}" / f"{started_at_dt:%d}"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _safe_game_id(game_id: str) -> str:
+    """ファイル名に使える形にサニタイズ(+, : 等を _ に)。"""
+    safe = "".join(c if c.isalnum() or c in "-._" else "_" for c in game_id)
+    return safe or "unknown"
+
+
+def _write_kifu(kifu_path: Path, raw_lines: list[str], password: Optional[str]) -> None:
+    """棋譜を CSA 形式で書き出す。書込前にパスワード漏洩チェック。"""
+    body = "\n".join(raw_lines) + "\n"
+    if password and password in body:
+        raise RuntimeError("棋譜にパスワードが含まれています。書込中止。")
+    kifu_path.write_text(body, encoding="utf-8", newline="\n")
+    log.info("kifu saved: %s (%d lines)", kifu_path, len(raw_lines))
+
+
+def _append_log_jsonl(log_path: Path, result: GameResult) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(result.__dict__, ensure_ascii=False) + "\n")
+
+
+def _start_engine(cfg: dict, config_path: Path) -> UsiEngine:
+    engine_cfg = cfg.get("engine", {})
+    binary = resolve_path(config_path, engine_cfg.get("binary"))
+    cwd = engine_cfg.get("cwd")
+    cwd_resolved = resolve_path(config_path, cwd) if cwd else None
+    usi = UsiEngine(binary=binary, cwd=cwd_resolved)
+    usi.start()
+    usi.usi_handshake()
+    options = engine_cfg.get("options") or {}
+    # EvalDir / BookFile は config からの相対パスを絶対化
+    for key in ("EvalDir", "BookFile", "BookDir"):
+        if key in options and isinstance(options[key], str):
+            options[key] = str(resolve_path(config_path, options[key]))
+    usi.setoptions(options)
+    usi.isready()
+    log.info("USI engine started: %s", binary)
+    return usi
+
+
+def play_one_game(
+    usi: UsiEngine,
+    csa: CsaClient,
+    summary: GameSummary,
+    kifu_root: Path,
+    log_path: Path,
+    *,
+    password: Optional[str],
+) -> GameResult:
+    """1 局完走させる。終局メッセージを受領するまで戻らない。
+
+    floodgate の初期局面は Hirate(平手)前提。Position ブロックを cshogi で
+    パースする実装は将来必要なら拡張する。
+    """
+    started_at_dt = datetime.now(timezone.utc)
+    started_at_iso = started_at_dt.isoformat(timespec="seconds")
+    started_monotonic = time.monotonic()
+
+    board = cshogi.Board()  # Hirate
+    usi.usinewgame()
+    usi_moves: list[str] = []
+
+    # 棋譜の生行: Game_Summary をそのまま、その後に START 行
+    raw_lines: list[str] = list(summary.raw_lines)
+    raw_lines.append(f"START:{summary.game_id}")
+
+    my_color = summary.your_turn
+    total_time_ms = (summary.total_time_s or 300) * 1000
+    byoyomi_ms = (summary.byoyomi_s or 10) * 1000
+    increment_ms = (summary.increment_s or 0) * 1000
+    btime_ms = total_time_ms
+    wtime_ms = total_time_ms
+
+    opponent = summary.name_white if my_color == "+" else summary.name_black
+
+    result_marker = "#UNKNOWN"
+
+    while True:
+        is_my_turn = (
+            (my_color == "+" and board.turn == cshogi.BLACK)
+            or (my_color == "-" and board.turn == cshogi.WHITE)
+        )
+
+        if is_my_turn:
+            # 思考と送信
+            usi.position("startpos", moves=usi_moves)
+            go_args = f"btime {btime_ms} wtime {wtime_ms} byoyomi {byoyomi_ms}"
+            if increment_ms > 0:
+                go_args += f" binc {increment_ms} winc {increment_ms}"
+            think_start = time.monotonic()
+            # 余裕ある timeout: byoyomi + 余裕 30s + ネットワーク遅延 5s
+            timeout_s = max(byoyomi_ms / 1000, 5.0) + 35.0
+            try:
+                bestmove, _ = usi.go_and_get_bestmove(go_args, timeout=timeout_s)
+            except Exception as e:
+                log.error("USI go timeout / error: %s — sending %%TORYO", e)
+                csa.send_move("%TORYO", time_used_s=int(time.monotonic() - think_start))
+                # 終局 を待ち受け(下のループに任せる)
+                ev = csa.recv_event()
+                if isinstance(ev, EndGame):
+                    result_marker = ev.marker
+                    raw_lines.append(ev.marker)
+                    raw_lines.extend(ev.trailing_lines)
+                break
+
+            elapsed_s = max(0, int(time.monotonic() - think_start))
+
+            if bestmove == "resign":
+                csa.send_move("%TORYO", time_used_s=elapsed_s)
+            elif bestmove == "win":
+                csa.send_move("%KACHI", time_used_s=elapsed_s)
+            else:
+                try:
+                    csa_body = usi_move_to_csa(bestmove, board)
+                except ValueError as e:
+                    log.error("USI->CSA 変換失敗 (bestmove=%r sfen=%s): %s",
+                              bestmove, board.sfen(), e)
+                    csa.send_move("%TORYO", time_used_s=elapsed_s)
+                    bestmove = None
+                else:
+                    csa.send_move(csa_body, time_used_s=elapsed_s)
+
+            # 自分の手の echo を待つ。サーバが echo してから終局通知する場合と
+            # echo せずに即終局通知する場合の両方に対応(下の recv_event で分岐)。
+
+        # サーバからの次の出力を受信(自分の手の echo / 相手の手 / 終局)
+        try:
+            ev = csa.recv_event()
+        except (socket.timeout, CsaProtocolError, OSError) as e:
+            # OSError 包含: ConnectionResetError / ConnectionAbortedError 等。
+            # サーバが終局直後に即 close した場合に発生しうる(対局結果は確定済み)。
+            log.warning("recv_event interrupted: %s", e)
+            result_marker = "#CHUDAN"
+            raw_lines.append(result_marker)
+            break
+
+        if isinstance(ev, EndGame):
+            result_marker = ev.marker
+            raw_lines.append(ev.marker)
+            raw_lines.extend(ev.trailing_lines)
+            break
+
+        # CsaMoveEvent
+        raw_lines.append(ev.raw)
+
+        if ev.is_special:
+            # %TORYO / %KACHI 等の echo。次に終局メッセージが来る想定。
+            continue
+
+        # 通常の指し手 echo / 相手の手
+        try:
+            usi_str = csa_move_to_usi(ev.body, board)
+            push_csa_move(board, ev.body)
+        except ValueError as e:
+            log.error("CSA->USI 変換失敗 (csa=%r sfen=%s): %s",
+                      ev.body, board.sfen(), e)
+            # 反則レベルの不整合。投了して切る。
+            csa.send_move("%TORYO")
+            result_marker = "#ABORT"
+            break
+
+        usi_moves.append(usi_str)
+
+        # 残り時間更新(その手を指した側の時間を消費)
+        if ev.time_used_s is not None:
+            used_ms = ev.time_used_s * 1000
+            # 直前の手を指したのは、push 後の現在手番の「逆」
+            mover_was_black = board.turn == cshogi.WHITE
+            if mover_was_black:
+                btime_ms = max(0, btime_ms - used_ms + increment_ms)
+            else:
+                wtime_ms = max(0, wtime_ms - used_ms + increment_ms)
+
+    duration_s = int(time.monotonic() - started_monotonic)
+
+    # 棋譜ファイルパス
+    kifu_dir = _kifu_dir_for(kifu_root, started_at_dt)
+    kifu_path = kifu_dir / f"{_safe_game_id(summary.game_id)}.csa"
+    try:
+        _write_kifu(kifu_path, raw_lines, password)
+    except RuntimeError as e:
+        log.error("棋譜書込失敗: %s", e)
+
+    result = GameResult(
+        game_id=summary.game_id,
+        opponent=opponent,
+        my_color=my_color,
+        result_marker=result_marker,
+        moves=len(usi_moves),
+        duration_s=duration_s,
+        started_at=started_at_iso,
+        kifu_path=str(kifu_path),
+    )
+    _append_log_jsonl(log_path, result)
+    log.info(
+        "game finished: %s %s vs %s (moves=%d, %ds)",
+        result_marker,
+        summary.name_black if my_color == "+" else summary.name_white,
+        opponent,
+        result.moves,
+        result.duration_s,
+    )
+    return result
+
+
+def run_session(cfg: dict, config_path: Path) -> int:
+    """1 プロセス分のセッションを走らせる(自動再接続つき)。
+
+    Returns: 完了対局数
+    """
+    server = cfg.get("server", {})
+    account = cfg.get("account", {})
+    host = server.get("host", "wdoor.c.u-tokyo.ac.jp")
+    port = int(server.get("port", 4081))
+    username = account.get("username")
+    password = account.get("password")
+    if not username or not password:
+        raise RuntimeError("account.username / account.password が未設定です")
+
+    log_dir = resolve_path(config_path, cfg.get("log_dir", "../results/floodgate"))
+    log_dir = Path(log_dir)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_jsonl = log_dir / "log.jsonl"
+
+    kifu_root = resolve_path(config_path, cfg.get("kifu_dir", "../kifu"))
+    kifu_root = Path(kifu_root)
+    kifu_root.mkdir(parents=True, exist_ok=True)
+
+    auto_reconnect = bool(cfg.get("auto_reconnect", True))
+    max_games = cfg.get("max_games_per_session")
+    max_games = None if max_games in (None, "null", 0) else int(max_games)
+    reconnect_wait_s = float(cfg.get("reconnect_wait_sec", 30))
+    max_failures = int(cfg.get("max_consecutive_failures", 5))
+
+    games_completed = 0
+    consecutive_failures = 0
+
+    while True:
+        if _stop_requested:
+            log.info("停止要求あり。セッション終了。")
+            break
+        if max_games is not None and games_completed >= max_games:
+            log.info("max_games_per_session=%d 到達。終了。", max_games)
+            break
+
+        usi: Optional[UsiEngine] = None
+        try:
+            usi = _start_engine(cfg, config_path)
+            with CsaClient(host, port, username, password) as csa:
+                csa.login()
+                while True:
+                    if _stop_requested:
+                        break
+                    if max_games is not None and games_completed >= max_games:
+                        break
+                    log.info("対局割り当て待ち...(games_completed=%d)", games_completed)
+                    summary = csa.recv_game_summary()
+                    csa.agree(summary.game_id)
+                    play_one_game(
+                        usi, csa, summary, kifu_root, log_jsonl, password=password
+                    )
+                    games_completed += 1
+                    consecutive_failures = 0
+                # graceful logout
+                csa.logout()
+            return games_completed
+        except (CsaProtocolError, socket.error, OSError) as e:
+            consecutive_failures += 1
+            log.warning(
+                "セッション失敗 [%d/%d]: %s",
+                consecutive_failures,
+                max_failures,
+                mask_password(str(e), password),
+            )
+            if not auto_reconnect:
+                raise
+            if consecutive_failures >= max_failures:
+                log.error("連続失敗が上限 %d に到達。停止。", max_failures)
+                raise
+            log.info("%d 秒後に再接続します。", int(reconnect_wait_s))
+            time.sleep(reconnect_wait_s)
+        finally:
+            if usi is not None:
+                try:
+                    usi.quit()
+                except Exception:
+                    pass
+
+    return games_completed
+
+
+def setup_logging(cfg: dict) -> None:
+    level_name = (cfg.get("log_level") or "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="floodgate (shogi-server) クライアント")
-    ap.add_argument("--config", required=True)
+    ap.add_argument("--config", required=True, help="YAML 設定ファイルへのパス")
+    ap.add_argument("--env", default=None, help=".env のパス(既定: リポジトリ root の .env)")
     args = ap.parse_args()
+
+    # .env ロード(明示パス or デフォルト探索)
+    if args.env:
+        load_dotenv(args.env)
+    else:
+        # スクリプトの2つ上(scripts/.. = リポジトリ root)を見る
+        repo_root = SCRIPT_DIR.parent
+        env_path = repo_root / ".env"
+        if env_path.exists():
+            load_dotenv(env_path)
+        else:
+            load_dotenv()  # cwd フォールバック
 
     config_path = Path(args.config).resolve()
     cfg = load_config(config_path)
+    setup_logging(cfg)
 
-    server = cfg.get("server", {})
-    account = cfg.get("account", {})
-    engine_cfg = cfg.get("engine", {})
+    _install_sigint_handler()
 
-    print("[floodgate_client] v0 骨組み")
-    print(f"  server: {server.get('host')}:{server.get('port')}")
-    print(f"  user:   {account.get('username')}")
-    print(f"  engine: {resolve_path(config_path, engine_cfg.get('binary'))}")
-    print("")
-    print("実装 TODO(優先順):")
-    print("  1. socket で host:port に TCP 接続、CSA LOGIN コマンドを発行")
-    print("  2. 'LOGIN: ... OK' を確認、待ち受け")
-    print("  3. 'BEGIN Game_Summary' を解釈し、自分の手番・持ち時間・初期局面を取得")
-    print("  4. USIエンジンを utils/usi.py で起動、`position` / `go byoyomi N` を発行")
-    print("  5. bestmove を CSA に翻訳して送信、相手の手を待つ → 局面を更新 → 繰り返し")
-    print("  6. 終局信号(#WIN/#LOSE/#DRAW/#CENSORED 等)で 1 局終了、棋譜を保存")
-    print("  7. auto_reconnect=true なら再接続ループ")
-    print("")
-    print("注: CSA <-> USI の指し手翻訳ユーティリティが必要。utils/csa_usi.py を新設する想定。")
-    return 0
+    log.info("floodgate_client start (config=%s)", config_path)
+    try:
+        n = run_session(cfg, config_path)
+        log.info("セッション完了: %d 局", n)
+        return 0
+    except Exception as e:
+        log.exception("致命的エラー: %s", e)
+        return 1
 
 
 if __name__ == "__main__":
