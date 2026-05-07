@@ -304,9 +304,27 @@ def run_session(cfg: dict, config_path: Path) -> int:
     host = server.get("host", "wdoor.c.u-tokyo.ac.jp")
     port = int(server.get("port", 4081))
     username = account.get("username")
-    password = account.get("password")
-    if not username or not password:
-        raise RuntimeError("account.username / account.password が未設定です")
+    if not username:
+        raise RuntimeError("account.username が未設定です")
+
+    # floodgate CSA モードのパスワード組み立て:
+    #   game_type + trip が両方あればそれを優先(`<game_type>,<trip>`)、
+    #   なければ後方互換のため password を使う(任意の文字列、マッチメイキング非対応)
+    game_type = account.get("game_type")
+    trip = account.get("trip")
+    if game_type and trip:
+        password = f"{game_type},{trip}"
+        log.info("floodgate game_type=%s でマッチメイキングに参加します", game_type)
+    elif "password" in account and account["password"]:
+        password = account["password"]
+        log.warning(
+            "account.password を直接使用(game_type+trip 未設定のため "
+            "floodgate のマッチメイキングキューに入らない可能性あり)"
+        )
+    else:
+        raise RuntimeError(
+            "account.game_type + account.trip(推奨)または account.password が必要です"
+        )
 
     log_dir = resolve_path(config_path, cfg.get("log_dir", "../results/floodgate"))
     log_dir = Path(log_dir)

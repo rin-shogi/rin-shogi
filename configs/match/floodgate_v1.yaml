@@ -23,8 +23,14 @@ server:
   port: 4081
 
 account:
+  # ハンドル名(任意、登録不要)
   username: Rin-suisho5-v1
-  password: $env:FLOODGATE_PASSWORD
+  # floodgate CSA モードでは LOGIN のパスワード欄が「<game_type>,<trip>」形式:
+  #   game_type = マッチメイキングキューの識別子(時間制を兼ねる)
+  #   trip      = ユーザ固有の秘密文字列(同名ユーザの区別用)
+  # 公式: http://wdoor.c.u-tokyo.ac.jp/shogi/floodgate.html
+  game_type: floodgate-300-10F   # 5 分切れ負け + 10 秒フィッシャー(floodgate 標準)
+  trip: $env:FLOODGATE_PASSWORD  # .env で設定。平文で流れるため重要なものは使わない
 
 engine:
   # 相対パスは「この YAML のあるディレクトリ(configs/match/)からの相対」
