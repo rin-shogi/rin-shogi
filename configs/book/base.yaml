@@ -1,0 +1,29 @@
+# 定跡 DB 構築設定(F2)
+name: book_v1
+output_db: ../evals/book/main.db
+
+sources:
+  # 公開定跡 / 棋譜から取り込み
+  - type: yaneuraou_db
+    path: ../engine/source/eval/book/standard_book.db    # やねうら王同梱(あれば)
+    weight: 1.0
+
+  - type: csa_dir
+    path: ../data/floodgate/strong         # floodgate の高レート棋譜
+    rating_min: 3000
+    weight: 1.0
+    max_ply: 30                            # 序盤30手まで採用
+
+  # - type: kif_dir
+  #   path: ../data/pro                    # プロ棋譜(著作権確認後に有効化)
+  #   weight: 2.0
+  #   max_ply: 40
+
+filtering:
+  min_count: 3                             # 同一局面で3回以上出現する手のみ採用
+  evaluator:                               # 各候補手を実評価関数で再評価
+    enable: true
+    engine_binary: ../engine/bin/YaneuraOu-NORMAL.exe
+    eval_dir: ../evals/baseline/suisho
+    depth: 12
+    drop_below_centipawn: -50              # 評価値が-50以下の手は外す

@@ -1,0 +1,32 @@
+# 学習済み評価関数 vs 出発点(M3-M4 で利用)テンプレ
+name: v0.1_vs_baseline
+output_dir: ../results/matches/v0.1_vs_baseline
+games: 200
+parallel: 2
+swap_colors: true
+seed: 1234
+
+time_control:
+  byoyomi_ms: 1000
+
+engines:
+  a:
+    name: Rin-v0.1
+    binary: ../engine/bin/YaneuraOu-NORMAL.exe
+    options:
+      Threads: 4
+      USI_Hash: 1024
+      EvalDir: ../evals/trained/Rin-v0.1
+      FV_SCALE: 24
+
+  b:
+    name: rin_suisho5
+    binary: ../engine/bin/YaneuraOu-NORMAL.exe
+    options:
+      Threads: 4
+      USI_Hash: 1024
+      EvalDir: ../evals/baseline/suisho5
+      FV_SCALE: 24
+
+opening:
+  type: none

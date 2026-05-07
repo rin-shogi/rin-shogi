@@ -1,0 +1,17 @@
+# NNUE 学習 — v0.1(M3 サイクル動作確認)
+name: train_v0.1
+engine_binary: ../engine/bin/YaneuraOu-LEARN.exe
+seed_eval_dir: ../evals/baseline/suisho
+options:
+  Threads: 8
+  USI_Hash: 4096
+
+learn:
+  targetdir: ../data/selfplay/selfplay_v1
+  loop: 1
+  batchsize: 1000000
+  newbob_decay: 0.5
+  eta: 1.0
+  validation_set_file_name: null
+  output_dir: ../evals/trained/v0.1
+  save_every: 50000000

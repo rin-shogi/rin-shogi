@@ -1,0 +1,16 @@
+# 教師局面生成 — 初回小規模(D2)
+name: selfplay_v1
+engine_binary: ../engine/bin/YaneuraOu-GENSFEN.exe
+eval_dir: ../evals/baseline/suisho
+options:
+  Threads: 8
+  USI_Hash: 4096
+
+gensfen:
+  loop: 1000000                # まずは100万局面で動作確認(D2)
+  depth: 8
+  random_move_minply: 1
+  random_move_maxply: 24
+  random_multi_pv: 4
+  output_file_name: ../data/selfplay/selfplay_v1/gensfen.bin
+  # その他やねうら王の gensfen オプションは必要に応じて追加

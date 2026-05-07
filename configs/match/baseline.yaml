@@ -1,0 +1,34 @@
+# M2 ベースライン測定: 標準やねうら王 vs 公開強力評価関数
+# 1手1秒、200局、先後入れ替えあり
+name: baseline_yane_vs_suisho
+output_dir: ../results/matches/baseline
+games: 200
+parallel: 2
+swap_colors: true
+seed: 42
+
+time_control:
+  byoyomi_ms: 1000
+
+engines:
+  a:
+    name: rin_standard
+    binary: ../engine/bin/YaneuraOu-NORMAL.exe
+    options:
+      Threads: 4
+      USI_Hash: 1024
+      EvalDir: ../evals/baseline/standard
+
+  b:
+    name: rin_suisho5
+    binary: ../engine/bin/YaneuraOu-NORMAL.exe
+    options:
+      Threads: 4
+      USI_Hash: 1024
+      EvalDir: ../evals/baseline/suisho5
+      FV_SCALE: 24
+
+opening:
+  type: none   # "book" or "sfen_list" or "none"
+
+stop_on_error: false   # USI 異常時も次の局へ

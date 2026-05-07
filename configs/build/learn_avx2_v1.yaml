@@ -1,0 +1,11 @@
+# 学習エンジン(NNUE 学習用)ビルド設定 — テンプレ
+target_cpu: AVX2
+eval_type: halfkp_256x2-32-32
+engine_target: LEARN_ENGINE
+compiler: clang++
+flags:
+  - -march=znver3
+binary_path: ../engine/bin/YaneuraOu-LEARN.exe
+upstream_commit: dc943f897baf6dcd77c2a22170e2b19e2e37c1d0
+built_at: null
+notes: "学習用ビルド(`learn` コマンド対応)"

@@ -1,0 +1,27 @@
+# AWS c7i.16xlarge spot — Phase G1 試行用テンプレ
+# 実プロビジョニングは G1 着手時に terraform/cloudformation/手順書 を整備
+
+provider: aws
+region: ap-northeast-1
+instance_type: c7i.16xlarge
+spot: true
+spot_max_price_usd_per_hour: 1.20
+ami: null                                  # 例: Ubuntu 22.04 LTS の最新 AMI ID
+ssh_key_name: null
+security_group: null
+storage_gb: 500
+shutdown_after_idle_min: 30                # スクリプト側で監視
+tags:
+  project: shogi-ai
+  ticket: "001"
+
+provisioning:
+  install:
+    - sudo apt-get update -y
+    - sudo apt-get install -y build-essential clang git python3-venv
+    - git clone https://github.com/yaneurao/YaneuraOu.git ~/engine
+    # ビルド・教師生成・学習スクリプトの転送はメインホストから rsync など
+  on_start:
+    - mkdir -p ~/work && cd ~/work
+  on_idle_check:
+    - "[ -z \"$(pgrep YaneuraOu)\" ]"      # エンジンプロセスが居なくなったら idle

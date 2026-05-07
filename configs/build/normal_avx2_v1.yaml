@@ -1,0 +1,13 @@
+# 通常エンジン(対局用)ビルド設定 — テンプレ
+# 実ビルド時に値を確定し、`docs/BUILD.md` の手順で反映する
+
+target_cpu: AVX2                        # 本端末は AVX2/BMI2 対応
+eval_type: halfkp_256x2-32-32           # NNUE 標準
+engine_target: NORMAL_ENGINE
+compiler: clang++
+flags:
+  - -march=znver3                       # AMD Ryzen 7000 series 向け
+binary_path: ../engine/bin/YaneuraOu-NORMAL.exe
+upstream_commit: dc943f897baf6dcd77c2a22170e2b19e2e37c1d0
+built_at: null                          # 実ビルド時に yyyy-mm-dd を入れる
+notes: "本端末初回ビルド(対局用)"
