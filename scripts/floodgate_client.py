@@ -57,6 +57,49 @@ from utils.usi import UsiEngine  # noqa: E402
 log = logging.getLogger("floodgate_client")
 
 
+# --- 時間制ユーティリティ(ユニットテスト対象、純関数) ---
+
+def time_control_from_summary(
+    total_time_s: Optional[int],
+    byoyomi_s: Optional[int],
+    increment_s: Optional[int],
+) -> tuple[int, int, int]:
+    """Game_Summary の時間関連フィールドから (total_ms, byoyomi_ms, inc_ms) を返す。
+
+    None は「サーバが値を提供しなかった」とみなして妥当なデフォルトを当てる。
+    0 は「明示的に値なし(切れ負け側 / フィッシャー側)」なので 0 のまま尊重する。
+    `or` を使って 0 を None 同等にしないことが重要。
+    """
+    t = (total_time_s if total_time_s is not None else 300) * 1000
+    b = (byoyomi_s if byoyomi_s is not None else 10) * 1000
+    i = (increment_s if increment_s is not None else 0) * 1000
+    return t, b, i
+
+
+def build_go_args(
+    btime_ms: int, wtime_ms: int, byoyomi_ms: int, increment_ms: int
+) -> tuple[str, int]:
+    """USI go コマンドの引数文字列と、エンジン応答の安全タイムアウト(ms)を返す。
+
+    USI 仕様では byoyomi と binc/winc は択一が原則なので、
+    increment > 0 ならフィッシャー、それ以外なら byoyomi を選ぶ。
+    切れ負け(byoyomi=0, inc=0)も byoyomi 0 として表現できる。
+
+    Returns:
+        (go_args, worst_think_ms)
+    """
+    if increment_ms > 0:
+        go_args = (
+            f"btime {btime_ms} wtime {wtime_ms} "
+            f"binc {increment_ms} winc {increment_ms}"
+        )
+        worst = btime_ms + increment_ms
+    else:
+        go_args = f"btime {btime_ms} wtime {wtime_ms} byoyomi {byoyomi_ms}"
+        worst = byoyomi_ms if byoyomi_ms > 0 else btime_ms
+    return go_args, worst
+
+
 # --- グレースフル停止フラグ(Ctrl-C で立てる) ---
 _stop_requested = False
 
@@ -156,21 +199,16 @@ def play_one_game(
     raw_lines.append(f"START:{summary.game_id}")
 
     my_color = summary.your_turn
-    # 時間制パラメータ。0 は正規の値(フィッシャーなら byoyomi=0、秒読みなら increment=0)
-    # なので `or` ではなく明示的に None チェックすること。
-    total_time_s = summary.total_time_s if summary.total_time_s is not None else 300
-    byoyomi_s = summary.byoyomi_s if summary.byoyomi_s is not None else 10
-    increment_s = summary.increment_s if summary.increment_s is not None else 0
-    total_time_ms = total_time_s * 1000
-    byoyomi_ms = byoyomi_s * 1000
-    increment_ms = increment_s * 1000
+    total_time_ms, byoyomi_ms, increment_ms = time_control_from_summary(
+        summary.total_time_s, summary.byoyomi_s, summary.increment_s
+    )
     btime_ms = total_time_ms
     wtime_ms = total_time_ms
 
     log.info(
         "対局開始: %s vs %s (Total=%ds, Byoyomi=%ds, Increment=%ds, my_color=%s)",
         summary.name_black, summary.name_white,
-        total_time_s, byoyomi_s, increment_s, my_color,
+        total_time_ms // 1000, byoyomi_ms // 1000, increment_ms // 1000, my_color,
     )
 
     opponent = summary.name_white if my_color == "+" else summary.name_black
@@ -186,20 +224,9 @@ def play_one_game(
         if is_my_turn:
             # 思考と送信
             usi.position("startpos", moves=usi_moves)
-            # USI go: byoyomi と fischer は択一(両方指定すると engine が時間配分誤算)
-            #   - 秒読み制      : `btime X wtime X byoyomi Y`
-            #   - フィッシャー制: `btime X wtime X binc Y winc Y`
-            #   - 両方0(切れ負け): byoyomi 0 を送る
-            if increment_ms > 0:
-                go_args = (
-                    f"btime {btime_ms} wtime {wtime_ms} "
-                    f"binc {increment_ms} winc {increment_ms}"
-                )
-                # fischer の場合のローカル安全タイムアウト: btime + inc + 余裕
-                worst_think_ms = btime_ms + increment_ms
-            else:
-                go_args = f"btime {btime_ms} wtime {wtime_ms} byoyomi {byoyomi_ms}"
-                worst_think_ms = byoyomi_ms if byoyomi_ms > 0 else btime_ms
+            go_args, worst_think_ms = build_go_args(
+                btime_ms, wtime_ms, byoyomi_ms, increment_ms
+            )
             think_start = time.monotonic()
             # 余裕ある timeout: 想定最悪 + ネットワーク遅延 + 30 秒の安全マージン
             timeout_s = max(worst_think_ms / 1000, 5.0) + 30.0
