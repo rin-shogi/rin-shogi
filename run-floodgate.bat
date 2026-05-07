@@ -1,11 +1,15 @@
 @echo off
 REM Rin floodgate runner (interactive)
 REM Launch: double-click or run from a terminal
-REM Stop: Ctrl-C (graceful — finishes the current game first)
+REM Stop: Ctrl-C (graceful: finishes the current game first)
 REM
-REM 起動時にハンドル名と trip(パスワード)を聞きます。
-REM trip は環境変数 FLOODGATE_PASSWORD として python に渡されるため、
-REM プロセス一覧(tasklist)には現れません。
+REM Prompts for handle name and trip (password) at startup.
+REM Trip is passed to python via the FLOODGATE_PASSWORD env var
+REM so it does not appear in the process listing (tasklist).
+REM
+REM NOTE: keep this .bat ASCII-only. cmd.exe parses .bat line-by-line
+REM as bytes and chokes on multi-byte UTF-8 even with `chcp 65001`.
+REM Japanese output from python is fine (PYTHONIOENCODING=utf-8 + chcp).
 
 setlocal
 chcp 65001 >nul
@@ -18,34 +22,33 @@ echo  config: configs/match/floodgate_v1.yaml
 echo ============================================================
 echo.
 
-REM --- ハンドル名のプロンプト ---
+REM --- Handle name (default Rin-suisho5-v1) ---
 set "HANDLE_DEFAULT=Rin-suisho5-v1"
 set "HANDLE="
-set /p HANDLE="ハンドル名 [%HANDLE_DEFAULT%]: "
+set /p HANDLE="Handle [%HANDLE_DEFAULT%]: "
 if "%HANDLE%"=="" set "HANDLE=%HANDLE_DEFAULT%"
 
-REM --- trip(パスワード)のプロンプト ---
-REM 注: cmd.exe の set /p は入力をそのままエコーします(伏字にできません)。
-REM    floodgate の trip はサーバへの送信時点で平文(LOGIN コマンドが平文)
-REM    なので、ここで隠しても本質的なセキュリティ向上にはなりません。
+REM --- Trip (password) ---
+REM cmd.exe set /p cannot mask input. Trip is sent in plaintext over
+REM CSA anyway, so masking would be cosmetic. Echo as-is.
 set "TRIP="
-set /p TRIP="trip       : "
+set /p TRIP="Trip      : "
 
 if "%TRIP%"=="" (
     echo.
-    echo [ERROR] trip が空です。終了します。
+    echo [ERROR] Trip is empty. Aborting.
     pause
     endlocal
     exit /b 1
 )
 
-REM --- 環境変数として python に渡す(.env を上書き) ---
+REM --- Pass to python: trip via env var, handle via CLI arg ---
 set "FLOODGATE_PASSWORD=%TRIP%"
 
 echo.
-echo ハンドル: %HANDLE%
-echo trip    : (set, %TRIP:~0,2%***)
-echo Ctrl-C で停止(進行中の対局は完走)
+echo Handle: %HANDLE%
+echo Trip  : (set, %TRIP:~0,2%***)
+echo Ctrl-C to stop (current game will be played out).
 echo ============================================================
 echo.
 
@@ -59,4 +62,4 @@ echo ============================================================
 echo  Exited with code %RC%
 echo ============================================================
 pause
-endlocal ^& exit /b %RC%
+endlocal & exit /b %RC%

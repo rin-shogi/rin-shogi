@@ -13,17 +13,22 @@ echo  Rin floodgate dry-run
 echo ============================================================
 echo.
 
-echo [1/3] CSA-USI move conversion unit tests
+echo [1/4] Time-control logic unit tests
+python scripts\utils\test_time_control.py
+if errorlevel 1 goto :fail
+
+echo.
+echo [2/4] CSA-USI move conversion unit tests
 python scripts\utils\test_csa_usi.py
 if errorlevel 1 goto :fail
 
 echo.
-echo [2/3] CSA protocol unit tests
+echo [3/4] CSA protocol unit tests
 python scripts\utils\test_csa.py
 if errorlevel 1 goto :fail
 
 echo.
-echo [3/3] floodgate_client end-to-end dry-run
+echo [4/4] floodgate_client end-to-end dry-run
 python tests\test_floodgate_client_dryrun.py
 if errorlevel 1 goto :fail
 
