@@ -1,0 +1,65 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== ビルド成果物 =====
+engine/bin/
+engine/build/
+engine/source/build/
+engine/source/*.o
+engine/source/*.obj
+*.exe
+!**/scripts/*.exe   # 万一スクリプト名に exe があるなら誤除外を防ぐ(基本は無関係)
+
+# ===== 重いデータ・成果物 =====
+# 各サブディレクトリの中身は無視するが、.gitkeep は残してディレクトリ構造を保持
+data/selfplay/**
+!data/selfplay/.gitkeep
+data/floodgate/**
+!data/floodgate/.gitkeep
+data/pro/**
+!data/pro/.gitkeep
+
+results/matches/**
+!results/matches/.gitkeep
+results/training/**
+!results/training/.gitkeep
+results/tuning/**
+!results/tuning/.gitkeep
+
+# ===== 評価関数バイナリ =====
+evals/baseline/**/*.bin
+evals/baseline/**/*.nnue
+evals/trained/**/*.bin
+evals/trained/**/*.nnue
+# CHANGELOG / README / 取得スクリプトはコミット
+!evals/**/README.md
+!evals/CHANGELOG.md
+!evals/**/fetch.sh
+!evals/**/fetch.ps1
+
+# ===== 定跡(サイズ大) =====
+evals/book/*.db
+evals/book/*.bin
+
+# ===== ログ・一時ファイル =====
+*.log
+*.tmp
+*.bak
+*.swp
+.DS_Store
+Thumbs.db
+
+# ===== IDE =====
+.vscode/
+.idea/
+*.iml

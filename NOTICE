@@ -1,0 +1,38 @@
+# NOTICE
+
+This project, **琳 (Rin)**, is a shogi engine derived from
+**やねうら王 (YaneuraOu)** and uses the **水匠5 (Suisho5)** evaluation
+function as its initial baseline.
+
+## Components and credits
+
+### YaneuraOu
+
+- Author: yaneurao (やねうらお)
+- Source: <https://github.com/yaneurao/YaneuraOu>
+- License: GNU General Public License, Version 3 (GPL-3.0)
+- This project is a derivative work of YaneuraOu and is therefore
+  also distributed under GPL-3.0 (see `LICENSE`).
+- YaneuraOu is included as a git submodule under `engine/`,
+  pinned at a specific upstream commit.
+
+### Suisho5 (水匠5) — Evaluation function
+
+- Author: たややん (Tayayan, <https://x.com/tayayan_ts>)
+- Distribution:
+  <https://github.com/yaneurao/YaneuraOu/releases/tag/suisho5>
+- License: Apache License, Version 2.0
+- The Suisho5 evaluation function is **not redistributed in this
+  repository**. It is fetched on demand by
+  `evals/baseline/suisho5/fetch.ps1` from the official YaneuraOu
+  release page.
+- Optimal `FV_SCALE` for Suisho5 is `24`.
+
+## Acknowledgments
+
+This project would not exist without the decades of work by the
+computer shogi community in Japan. In particular, the open-source
+ecosystem around やねうら王 / 水匠 / dlshogi and the long-running
+floodgate test bed at the University of Tokyo have made it possible
+for individuals to build engines that approach the strongest in the
+world.

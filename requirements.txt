@@ -1,0 +1,25 @@
+# Python 3.10+ 推奨(本端末は 3.13)
+# 将棋ルール処理(C 拡張、高速)
+cshogi>=0.7.0
+
+# YAML 設定
+PyYAML>=6.0
+
+# HTTP / ダウンロード
+requests>=2.31
+
+# 数値計算・統計(Elo・95%CI)
+numpy>=1.26
+scipy>=1.12
+
+# CLI ヘルパ
+click>=8.1
+
+# 進捗表示
+tqdm>=4.66
+
+# CSA 棋譜パース(cshogi にも CSA パーサあり、補完用)
+python-shogi>=1.1.0
+
+# ロギング(構造化)
+structlog>=24.1
