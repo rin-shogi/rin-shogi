@@ -156,11 +156,22 @@ def play_one_game(
     raw_lines.append(f"START:{summary.game_id}")
 
     my_color = summary.your_turn
-    total_time_ms = (summary.total_time_s or 300) * 1000
-    byoyomi_ms = (summary.byoyomi_s or 10) * 1000
-    increment_ms = (summary.increment_s or 0) * 1000
+    # 時間制パラメータ。0 は正規の値(フィッシャーなら byoyomi=0、秒読みなら increment=0)
+    # なので `or` ではなく明示的に None チェックすること。
+    total_time_s = summary.total_time_s if summary.total_time_s is not None else 300
+    byoyomi_s = summary.byoyomi_s if summary.byoyomi_s is not None else 10
+    increment_s = summary.increment_s if summary.increment_s is not None else 0
+    total_time_ms = total_time_s * 1000
+    byoyomi_ms = byoyomi_s * 1000
+    increment_ms = increment_s * 1000
     btime_ms = total_time_ms
     wtime_ms = total_time_ms
+
+    log.info(
+        "対局開始: %s vs %s (Total=%ds, Byoyomi=%ds, Increment=%ds, my_color=%s)",
+        summary.name_black, summary.name_white,
+        total_time_s, byoyomi_s, increment_s, my_color,
+    )
 
     opponent = summary.name_white if my_color == "+" else summary.name_black
 
@@ -175,12 +186,23 @@ def play_one_game(
         if is_my_turn:
             # 思考と送信
             usi.position("startpos", moves=usi_moves)
-            go_args = f"btime {btime_ms} wtime {wtime_ms} byoyomi {byoyomi_ms}"
+            # USI go: byoyomi と fischer は択一(両方指定すると engine が時間配分誤算)
+            #   - 秒読み制      : `btime X wtime X byoyomi Y`
+            #   - フィッシャー制: `btime X wtime X binc Y winc Y`
+            #   - 両方0(切れ負け): byoyomi 0 を送る
             if increment_ms > 0:
-                go_args += f" binc {increment_ms} winc {increment_ms}"
+                go_args = (
+                    f"btime {btime_ms} wtime {wtime_ms} "
+                    f"binc {increment_ms} winc {increment_ms}"
+                )
+                # fischer の場合のローカル安全タイムアウト: btime + inc + 余裕
+                worst_think_ms = btime_ms + increment_ms
+            else:
+                go_args = f"btime {btime_ms} wtime {wtime_ms} byoyomi {byoyomi_ms}"
+                worst_think_ms = byoyomi_ms if byoyomi_ms > 0 else btime_ms
             think_start = time.monotonic()
-            # 余裕ある timeout: byoyomi + 余裕 30s + ネットワーク遅延 5s
-            timeout_s = max(byoyomi_ms / 1000, 5.0) + 35.0
+            # 余裕ある timeout: 想定最悪 + ネットワーク遅延 + 30 秒の安全マージン
+            timeout_s = max(worst_think_ms / 1000, 5.0) + 30.0
             try:
                 bestmove, _ = usi.go_and_get_bestmove(go_args, timeout=timeout_s)
             except Exception as e:
