@@ -475,9 +475,20 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="floodgate (shogi-server) クライアント")
     ap.add_argument("--config", required=True, help="YAML 設定ファイルへのパス")
     ap.add_argument("--env", default=None, help=".env のパス(既定: リポジトリ root の .env)")
+    ap.add_argument(
+        "--username",
+        default=None,
+        help="config の account.username を上書き(対話起動用)",
+    )
+    ap.add_argument(
+        "--game-type",
+        default=None,
+        help="config の account.game_type を上書き",
+    )
     args = ap.parse_args()
 
-    # .env ロード(明示パス or デフォルト探索)
+    # .env ロード(明示パス or デフォルト探索)。既存環境変数は上書きしない
+    # (bat 等が環境変数を先に set している場合はそちらを尊重)。
     if args.env:
         load_dotenv(args.env)
     else:
@@ -491,6 +502,13 @@ def main() -> int:
 
     config_path = Path(args.config).resolve()
     cfg = load_config(config_path)
+
+    # CLI 引数で account.username / account.game_type を上書き
+    if args.username:
+        cfg.setdefault("account", {})["username"] = args.username
+    if args.game_type:
+        cfg.setdefault("account", {})["game_type"] = args.game_type
+
     setup_logging(cfg)
 
     _install_sigint_handler()
