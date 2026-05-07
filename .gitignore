@@ -59,6 +59,18 @@ evals/book/*.bin
 .DS_Store
 Thumbs.db
 
+# ===== シークレット =====
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ===== floodgate 棋譜・運用ログ =====
+# kifu/ は棋譜を直接 commit する運用(spec 確定)→ 通常ファイルは ignore しない
+# results/floodgate/ はセッションログ等、ローカル限定(中身は ignore、.gitkeep のみ commit)
+results/floodgate/**
+!results/floodgate/.gitkeep
+
 # ===== IDE =====
 .vscode/
 .idea/

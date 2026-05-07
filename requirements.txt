@@ -23,3 +23,6 @@ python-shogi>=1.1.0
 
 # ロギング(構造化)
 structlog>=24.1
+
+# .env ファイル読み込み(floodgate 接続スクリプト等で使用)
+python-dotenv>=1.0
