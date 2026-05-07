@@ -356,20 +356,34 @@ def run_session(cfg: dict, config_path: Path) -> int:
                 csa.logout()
             return games_completed
         except (CsaProtocolError, socket.error, OSError) as e:
-            consecutive_failures += 1
-            log.warning(
-                "セッション失敗 [%d/%d]: %s",
-                consecutive_failures,
-                max_failures,
-                mask_password(str(e), password),
+            # 直前に対局を完走している場合、これは「対局後にサーバが close した」
+            # 想定通りの挙動なので warning ではなく info 扱い・短い再接続インターバル。
+            graceful_after_game = (
+                games_completed > 0 and consecutive_failures == 0
             )
+            consecutive_failures += 1
+            if graceful_after_game:
+                wait_s = float(cfg.get("post_game_wait_sec", 3))
+                log.info(
+                    "対局後にサーバが切断(正常)。%d 秒後に再接続して次の対局を待ちます。",
+                    int(wait_s),
+                )
+            else:
+                wait_s = reconnect_wait_s
+                log.warning(
+                    "セッション失敗 [%d/%d]: %s",
+                    consecutive_failures,
+                    max_failures,
+                    mask_password(str(e), password),
+                )
             if not auto_reconnect:
                 raise
             if consecutive_failures >= max_failures:
                 log.error("連続失敗が上限 %d に到達。停止。", max_failures)
                 raise
-            log.info("%d 秒後に再接続します。", int(reconnect_wait_s))
-            time.sleep(reconnect_wait_s)
+            if not graceful_after_game:
+                log.info("%d 秒後に再接続します。", int(wait_s))
+            time.sleep(wait_s)
         finally:
             if usi is not None:
                 try:

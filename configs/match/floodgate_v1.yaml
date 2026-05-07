@@ -52,7 +52,11 @@ kifu_dir: ../../kifu
 
 # 自動再接続(切断時)
 auto_reconnect: true
+# 異常切断時の再接続待ち(秒)
 reconnect_wait_sec: 30
+# 対局後の通常切断時の再接続待ち(秒)。floodgate は1局ごとに close するため、
+# 次の対局を素早く待ち受けるよう短めに設定
+post_game_wait_sec: 3
 max_consecutive_failures: 5
 
 # 1 セッションでの最大対局数(0 / null = 無制限)。平日夜運用なので保守的に
