@@ -227,15 +227,48 @@ def play_one_game(
             go_args, worst_think_ms = build_go_args(
                 btime_ms, wtime_ms, byoyomi_ms, increment_ms
             )
+            log.info(
+                "go (move=%d, btime=%dms, wtime=%dms, inc=%dms): %s",
+                len(usi_moves) + 1, btime_ms, wtime_ms, increment_ms, go_args,
+            )
             think_start = time.monotonic()
-            # 余裕ある timeout: 想定最悪 + ネットワーク遅延 + 30 秒の安全マージン
-            timeout_s = max(worst_think_ms / 1000, 5.0) + 30.0
+            # 想定最悪(btime+inc) + ネットワーク遅延 + 60秒の安全マージン
+            timeout_s = max(worst_think_ms / 1000, 5.0) + 60.0
             try:
                 bestmove, _ = usi.go_and_get_bestmove(go_args, timeout=timeout_s)
+            except TimeoutError as e:
+                # 1次フォールバック: stop コマンドで bestmove を回収する。
+                # ハング ではなく単に思考オーバーランの場合、stop で現時点の
+                # 最善手が即返るので投了せずに済む。
+                log.warning(
+                    "go timeout (%.1fs) — stop コマンド送出して bestmove を回収します",
+                    timeout_s,
+                )
+                try:
+                    usi.stop()
+                    line = usi.wait_for("bestmove", timeout=10.0)
+                    toks = line.split()
+                    bestmove = toks[1] if len(toks) >= 2 else "resign"
+                    log.info("stop で bestmove 回収成功: %s", bestmove)
+                except Exception as e2:
+                    log.error(
+                        "stop 後も bestmove 未返却。投了に切り替え: %s", e2
+                    )
+                    csa.send_move(
+                        "%TORYO",
+                        time_used_s=int(time.monotonic() - think_start),
+                    )
+                    ev = csa.recv_event()
+                    if isinstance(ev, EndGame):
+                        result_marker = ev.marker
+                        raw_lines.append(ev.marker)
+                        raw_lines.extend(ev.trailing_lines)
+                    break
             except Exception as e:
-                log.error("USI go timeout / error: %s — sending %%TORYO", e)
-                csa.send_move("%TORYO", time_used_s=int(time.monotonic() - think_start))
-                # 終局 を待ち受け(下のループに任せる)
+                log.error("USI go error (非タイムアウト): %s — 投了", e)
+                csa.send_move(
+                    "%TORYO", time_used_s=int(time.monotonic() - think_start)
+                )
                 ev = csa.recv_event()
                 if isinstance(ev, EndGame):
                     result_marker = ev.marker

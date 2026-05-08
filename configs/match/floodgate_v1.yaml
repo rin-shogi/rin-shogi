@@ -47,8 +47,12 @@ engine:
     # FV_SCALE は水匠5の推奨値
     FV_SCALE: 24
     # ネットワーク遅延の補正(floodgate 用、ms)
+    # NetworkDelay   : 通常時の往復遅延見込み
+    # NetworkDelay2  : 1手最大時間からの引き算(時間切れ防止のバッファ)
+    # 終盤に btime=数十秒に減ったとき、エンジンが大きめに思考時間を取って
+    # オーバーランするのを防ぐため、NetworkDelay2 を厚めに(2.5秒)設定。
     NetworkDelay: 120
-    NetworkDelay2: 1120
+    NetworkDelay2: 2500
     # 思考スレッドあたりの探索打ち切り(任意。標準値で OK)
     # MinimumThinkingTime: 1000
 
